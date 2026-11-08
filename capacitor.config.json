@@ -1,0 +1,8 @@
+{
+  "appId": "com.rlss.gerenciador",
+  "appName": "RLSS Gerenciador",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

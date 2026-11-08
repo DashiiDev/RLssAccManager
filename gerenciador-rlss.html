@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RL & RLSS - Gerenciador de contas Local</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+  <style>
+    body { background: #0a0f1c; }
+    .card { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+    .card:hover { transform: translateY(-12px) scale(1.03); border-color: #22d3ee; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.4); }
+    .rank-item { background: #1e2937; transition: all 0.3s ease; cursor: pointer; }
+    .rank-item:hover { background: #334155; transform: scale(1.06); border-color: #67e8f9; }
+    .modal { animation: modalPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    @keyframes modalPop { from { opacity: 0; transform: scale(0.7) translateY(40px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    .status-badge { font-size: 0.7rem; padding: 4px 12px; border-radius: 9999px; font-weight: 700; }
+    .selected { border-color: #818cf8; background: #1e1f35; }
+    #bulkPanel, #exportPanel { transition: all 0.4s ease; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5); }
+    #bulkPanel.minimized, #exportPanel.minimized { height: 62px; overflow: hidden; }
+    .draggable { cursor: move; }
+  </style>
+</head>
+
+<body class="text-gray-200">
+  <div class="max-w-7xl mx-auto p-6">
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h1 class="text-4xl font-bold text-cyan-400">🚀 RL Sideswipe</h1>
+        <p class="text-gray-400">Gerenciador Local de Contas</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="toggleBulkResetMode()" id="bulkBtn" class="px-6 py-2.5 rounded-xl font-medium flex items-center gap-2 bg-violet-600 hover:bg-violet-700 transition-all">
+          <i class="fas fa-sync-alt"></i>
+          <span id="bulkBtnText">Reset Temporada</span>
+        </button>
+        <button onclick="toggleExportMode()" id="exportBtn" class="px-6 py-2.5 rounded-xl font-medium flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 transition-all">
+          <i class="fas fa-file-export"></i>
+          <span id="exportBtnText">Exportar</span>
+        </button>
+        <button onclick="importarBackup()" class="bg-slate-700 hover:bg-slate-600 px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all">
+          <i class="fas fa-file-import"></i> Importar
+        </button>
+        <button onclick="selecionarTipoConta()" class="bg-cyan-500 hover:bg-cyan-600 px-6 py-2.5 rounded-xl font-semibold flex items-center gap-2 transition-all">
+          <i class="fas fa-plus"></i> Nova Conta
+        </button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl p-5 mb-8">
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">BUSCA</label>
+          <input type="text" id="search" placeholder="Nome, email..." class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm" oninput="renderizar()">
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">ORDENAR POR</label>
+          <select id="ordenar" onchange="renderizar()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm">
+            <option value="nome">Nome (A-Z)</option>
+            <option value="data">Data de Atualização</option>
+            <option value="rank-desc" selected>Rank (Maior → Menor)</option>
+            <option value="rank-asc">Rank (Menor → Maior)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">TIPO DE CONTA</label>
+          <select id="tipoConta" onchange="renderizar()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm">
+            <option value="todos">Todas</option>
+            <option value="rlss">Rocket League Sideswipe</option>
+            <option value="rl">Rocket League (PC)</option>
+            <option value="email">Email / Outlook</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">PLATAFORMA</label>
+          <select id="plataforma" onchange="renderizar()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm">
+            <option value="todos">Todas</option>
+            <option value="epic">Epic</option>
+            <option value="steam">Steam</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">STATUS</label>
+          <select id="statusFiltro" onchange="renderizar()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm">
+            <option value="todos">Todos os Status</option>
+            <option value="importante">MAIN / Importante</option>
+            <option value="nao_vendida">Não Vendida</option>
+            <option value="pra_vender">Pra Ser Vendida</option>
+            <option value="vendida">Vendida</option>
+          </select>
+        </div>
+
+        <!-- filtro do dinheiro -->
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">PREÇO MÍNIMO (R$)</label>
+          <input type="text" id="precoMin" placeholder="Ex: 15" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm" oninput="renderizar()">
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">MODO / RANK</label>
+          <select id="modoFiltro" onchange="renderizar()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm">
+            <option value="">Todos os Modos</option>
+            <option value="1v1">1v1</option>
+            <option value="2v2">2v2</option>
+            <option value="3v3">3v3</option>
+          </select>
+        </div>
+      </div>
+
+      <button onclick="limparFiltros()" class="mt-4 text-sm text-red-400 hover:text-red-300 flex items-center gap-2">
+        <i class="fas fa-sync"></i> Limpar Todos os Filtros
+      </button>
+    </div>
+
+    <div id="listaContas" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+  </div>
+
+  <!-- Modal Tipo -->
+  <div id="modalTipo" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+    <div class="bg-slate-900 rounded-3xl p-8 w-full max-w-md modal">
+      <h2 class="text-2xl font-bold text-cyan-400 mb-6 text-center">Qual tipo de conta será adicionada?</h2>
+      <div class="space-y-3">
+        <button onclick="iniciarCadastro('rlss')" class="w-full bg-slate-800 hover:bg-slate-700 border border-cyan-500 text-left p-5 rounded-2xl transition-all hover:scale-105">
+          <strong>B:</strong> Rocket League Sideswipe (Epic)
+        </button>
+        <button onclick="iniciarCadastro('rl')" class="w-full bg-slate-800 hover:bg-slate-700 border border-purple-500 text-left p-5 rounded-2xl transition-all hover:scale-105">
+          <strong>A:</strong> Rocket League (Epic / Steam)
+        </button>
+        <button onclick="iniciarCadastro('email')" class="w-full bg-slate-800 hover:bg-slate-700 border border-emerald-500 text-left p-5 rounded-2xl transition-all hover:scale-105">
+          <strong>C:</strong> Email (Gmail, Outlook, etc)
+        </button>
+      </div>
+      <button onclick="fecharModalTipo()" class="mt-6 w-full py-3 text-gray-400 hover:text-white transition-all">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Painel Exportar -->
+  <div id="exportPanel" class="hidden fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 border border-emerald-500 rounded-3xl shadow-2xl z-50 p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-bold text-emerald-400 flex items-center gap-2">
+        <i class="fas fa-file-export"></i> Exportar Contas Selecionadas
+      </h3>
+      <button onclick="cancelarExportMode()" class="text-gray-400 hover:text-red-400">
+        <i class="fas fa-times text-xl"></i>
+      </button>
+    </div>
+    <p class="text-sm text-gray-400 mb-4" id="exportSelectedText">0 contas selecionadas</p>
+    <button onclick="exportarSelecionadas()" class="w-full bg-emerald-500 hover:bg-emerald-600 py-4 rounded-2xl font-bold text-lg">Exportar Selecionadas</button>
+  </div>
+
+  <!-- Painel Reset Temporada -->
+  <div id="bulkPanel" class="hidden fixed bottom-6 right-6 bg-slate-900 border border-violet-500 rounded-3xl shadow-2xl z-50 w-96">
+    <div id="panelHeader" class="draggable bg-slate-800 px-6 py-4 rounded-t-3xl flex items-center justify-between">
+      <h3 class="font-bold text-violet-400 flex items-center gap-2">
+        <i class="fas fa-sync-alt"></i> Reset Temporada
+      </h3>
+      <div class="flex gap-4">
+        <button onclick="minimizePanel()" class="text-gray-400 hover:text-white"><i class="fas fa-minus"></i></button>
+        <button onclick="cancelarBulkReset()" class="text-gray-400 hover:text-red-400"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+    <div id="panelContent" class="p-6">
+      <p class="text-sm text-gray-400 mb-5" id="bulkSelectedText">0 contas selecionadas</p>
+      <div class="grid grid-cols-2 gap-4" id="modesConfig"></div>
+      <div class="flex gap-3 mt-8">
+        <button onclick="aplicarResetPorModo()" class="flex-1 bg-emerald-500 hover:bg-emerald-600 py-4 rounded-2xl font-bold">Aplicar Reset</button>
+        <button onclick="cancelarBulkReset()" class="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-2xl font-bold">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Quick Edit Rank -->
+  <div id="modalQuickEdit" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+    <div class="bg-slate-900 rounded-3xl w-full max-w-md mx-4 p-8 modal">
+      <h3 class="text-2xl font-bold text-cyan-400 mb-6">Editar Rank</h3>
+      <p class="text-gray-400 mb-4" id="quickContaNome"></p>
+      <input type="text" id="quickModo" class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4 mb-6" readonly>
+      <input type="text" id="quickRank" placeholder="Novo rank (ex: C1, GC3, SSL)" class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4 text-lg mb-8">
+      <div class="flex gap-4">
+        <button onclick="salvarRankRapido()" class="flex-1 bg-emerald-500 hover:bg-emerald-600 py-4 rounded-2xl font-bold">Salvar</button>
+        <button onclick="fecharModalQuick()" class="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-2xl font-bold">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Detalhes -->
+  <div id="modalDetalhes" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+    <div class="bg-slate-900 rounded-3xl w-full max-w-lg mx-4 p-8 modal" id="conteudoDetalhes"></div>
+  </div>
+
+  <!-- Modal Cadastro / Edição -->
+  <div id="modalCadastro" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+    <div class="bg-slate-900 rounded-3xl w-full max-w-2xl mx-4 p-8 modal">
+      <h2 class="text-3xl font-bold mb-6 text-cyan-400" id="modalTitle">Nova Conta</h2>
+
+      <input type="text" id="nome" placeholder="Nome da Conta (obrigatório)" class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4 mb-4">
+      <input type="text" id="email" placeholder="Email" class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4 mb-4">
+
+      <div class="relative mb-6">
+        <input type="password" id="senha" placeholder="Senha" class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4">
+        <button onclick="toggleSenha()" class="absolute right-4 top-4 text-gray-400 hover:text-cyan-400">
+          <i class="fas fa-eye" id="eyeIcon"></i>
+        </button>
+      </div>
+
+      <!-- dinheiro (USD e BRL) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div>
+          <label class="text-xs text-cyan-400 block mb-1">Preço em USD ($)</label>
+          <input type="text" id="precoUSD" placeholder="0.00" inputmode="decimal"
+                 class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4">
+        </div>
+        <div>
+          <label class="text-xs text-cyan-400 block mb-1">Preço em R$ (BRL)</label>
+          <input type="text" id="precoBRL" placeholder="0,00" inputmode="decimal"
+                 class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4">
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <label class="block text-cyan-400 font-semibold mb-2">Status</label>
+        <select id="status" class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4">
+          <option value="importante">MAIN / IMPORTANTE (Azul)</option>
+          <option value="nao_vendida">NÃO VENDIDA (Verde)</option>
+          <option value="pra_vender">PRA SER VENDIDA (Amarelo)</option>
+          <option value="vendida">VENDIDA (Vermelho)</option>
+        </select>
+      </div>
+
+      <textarea id="notas" placeholder="Observações (opcional)" class="w-full bg-slate-800 border border-slate-600 rounded-2xl px-5 py-4 h-24 mb-6"></textarea>
+
+      <div class="mb-6">
+        <div class="flex justify-between mb-3">
+          <p class="text-cyan-400 font-semibold">Ranks / Modos</p>
+          <button onclick="adicionarRank()" class="text-cyan-400 text-sm hover:text-cyan-300">
+            <i class="fas fa-plus"></i> Adicionar
+          </button>
+        </div>
+        <div id="ranksList" class="space-y-3"></div>
+      </div>
+
+      <div class="flex gap-4">
+        <button onclick="salvarConta()" class="flex-1 bg-emerald-500 hover:bg-emerald-600 py-4 rounded-2xl font-bold">Salvar Conta</button>
+        <button onclick="fecharModalCadastro()" class="flex-1 bg-slate-700 hover:bg-slate-600 py-4 rounded-2xl font-bold">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let contas = JSON.parse(localStorage.getItem('rlss_contas')) || [];
+    let bulkResetMode = false;
+    let exportMode = false;
+    let selectedForReset = new Set();
+    let selectedForExport = new Set();
+    let rankEditando = null;
+    let contaEditando = null;
+    let senhaVisivel = false;
+    let tipoSelecionado = '';
+
+    const modos = ["1v1", "2v2", "3v3", "Extra Mode", "Hoops", "Rumble", "Dropshot", "Snow Day"];
+    const modosReset = ["1v1", "2v2", "3v3", "Extra Mode", "Hoops", "Rumble"];
+
+    const statusConfig = {
+      importante: { text: "MAIN / IMPORTANTE", color: "bg-blue-600", border: "border-blue-500" },
+      nao_vendida: { text: "NÃO VENDIDA", color: "bg-emerald-500", border: "border-emerald-500" },
+      pra_vender: { text: "PRA SER VENDIDA", color: "bg-amber-500", border: "border-amber-500" },
+      vendida: { text: "VENDIDA", color: "bg-red-600", border: "border-red-600" }
+    };
+
+    // ===== dinheiro: máscara/filtro USD e BRL =====
+    function normalizarTextoMonetario(txt, moeda /* 'USD' | 'BRL' */) {
+      let v = String(txt ?? '').replace(/[^\d.,]/g, '');
+      if (!v) return '';
+
+      // separador decimal esperado
+      const decSep = (moeda === 'USD') ? '.' : ',';
+
+      // encontra o último separador digitado (ponto ou vírgula) e usa como decimal
+      const lastDot = v.lastIndexOf('.');
+      const lastComma = v.lastIndexOf(',');
+      const idx = Math.max(lastDot, lastComma);
+
+      if (idx === -1) {
+        // só números
+        return v.replace(/\D/g, '');
+      }
+
+      const intPart = v.slice(0, idx).replace(/\D/g, '');
+      const decPart = v.slice(idx + 1).replace(/\D/g, '').slice(0, 2);
+
+      return decPart.length ? `${intPart}${decSep}${decPart}` : `${intPart}${decSep}`;
+    }
+
+    function moneyToCents(txt, moeda) {
+      const norm = normalizarTextoMonetario(txt, moeda);
+      if (!norm) return null;
+
+      let numStr = norm;
+      if (moeda !== 'USD') numStr = numStr.replace(',', '.');
+
+      const n = Number(numStr);
+      if (!Number.isFinite(n)) return null;
+      return Math.round(n * 100);
+    }
+
+    function centsToMoney(cents, moeda) {
+      if (cents === null || cents === undefined || Number.isNaN(Number(cents))) return '';
+      const v = Number(cents) / 100;
+      const locale = (moeda === 'USD') ? 'en-US' : 'pt-BR';
+      return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+    }
+
+    function attachMoneyMask(inputId, moeda) {
+      const el = document.getElementById(inputId);
+      if (!el) return;
+
+      el.addEventListener('input', () => {
+        el.value = normalizarTextoMonetario(el.value, moeda);
+      });
+
+      el.addEventListener('blur', () => {
+        const cents = moneyToCents(el.value, moeda);
+        el.value = (cents === null) ? '' : centsToMoney(cents, moeda);
+      });
+    }
+    // ============================================
+
+    function getRankValue(rankStr) {
+      if (!rankStr) return -5;
+      const str = rankStr.toUpperCase().trim();
+      if (str.includes('SSL')) return 15;
+      if (str.includes('GC3')) return 14;
+      if (str.includes('GC2')) return 13;
+      if (str.includes('GC')) return 12;
+      if (str.includes('C3')) return 10; if (str.includes('C2')) return 9; if (str.includes('C1')) return 8;
+      if (str.includes('D3')) return 7; if (str.includes('D2')) return 6; if (str.includes('D1')) return 5.5;
+      if (str.includes('P')) return 4; if (str.includes('G')) return 1;
+      if (str.includes('S')) return 0; if (str.includes('B')) return -2;
+      return -5;
+    }
+
+    function selecionarTipoConta() {
+      document.getElementById('modalTipo').classList.remove('hidden');
+    }
+
+    function fecharModalTipo() {
+      document.getElementById('modalTipo').classList.add('hidden');
+    }
+
+    function iniciarCadastro(tipo) {
+      tipoSelecionado = tipo;
+      fecharModalTipo();
+      contaEditando = null;
+
+      document.getElementById('modalTitle').textContent = 'Nova Conta';
+      document.getElementById('nome').value = '';
+      document.getElementById('email').value = '';
+      document.getElementById('senha').value = '';
+      document.getElementById('notas').value = '';
+      document.getElementById('status').value = 'importante';
+
+      // dinheiro
+      document.getElementById('precoUSD').value = '';
+      document.getElementById('precoBRL').value = '';
+
+      document.getElementById('ranksList').innerHTML = tipo === 'email'
+        ? '<p class="text-gray-500 text-sm italic">Contas de email não usam ranks.</p>'
+        : '';
+
+      if (tipo !== 'email') adicionarRank();
+      document.getElementById('modalCadastro').classList.remove('hidden');
+    }
+
+    function toggleBulkResetMode() {
+      bulkResetMode = !bulkResetMode;
+      selectedForReset.clear();
+      document.getElementById('bulkBtnText').textContent = bulkResetMode ? "Cancelar Reset" : "Reset Temporada";
+      document.getElementById('bulkBtn').classList.toggle('bg-red-600', bulkResetMode);
+      renderizar();
+      if (bulkResetMode) updateBulkPanel();
+      else document.getElementById('bulkPanel').classList.add('hidden');
+    }
+
+    function toggleExportMode() {
+      exportMode = !exportMode;
+      selectedForExport.clear();
+      document.getElementById('exportBtnText').textContent = exportMode ? "Cancelar Exportação" : "Exportar";
+      document.getElementById('exportBtn').classList.toggle('bg-red-600', exportMode);
+      renderizar();
+      if (exportMode) document.getElementById('exportPanel').classList.remove('hidden');
+      else document.getElementById('exportPanel').classList.add('hidden');
+    }
+
+    function toggleAccountSelection(index) {
+      if (selectedForReset.has(index)) selectedForReset.delete(index);
+      else selectedForReset.add(index);
+      renderizar();
+      updateBulkPanel();
+    }
+
+    function toggleExportSelection(index) {
+      if (selectedForExport.has(index)) selectedForExport.delete(index);
+      else selectedForExport.add(index);
+      renderizar();
+      document.getElementById('exportSelectedText').textContent =
+        `${selectedForExport.size} conta${selectedForExport.size !== 1 ? 's' : ''} selecionada${selectedForExport.size !== 1 ? 's' : ''}`;
+    }
+
+    function updateBulkPanel() {
+      const panel = document.getElementById('bulkPanel');
+      document.getElementById('bulkSelectedText').textContent =
+        `${selectedForReset.size} conta${selectedForReset.size !== 1 ? 's' : ''} selecionada${selectedForReset.size !== 1 ? 's' : ''}`;
+
+      let html = '';
+      modosReset.forEach(modo => {
+        html += `<div><label class="text-xs text-gray-400 block">${modo}</label><input type="text" id="reset-${modo}" placeholder="Ex: C1" class="w-full mt-1 bg-slate-800 border border-slate-600 rounded-2xl px-4 py-3"></div>`;
+      });
+      document.getElementById('modesConfig').innerHTML = html;
+      panel.classList.remove('hidden', 'minimized');
+    }
+
+    function minimizePanel() {
+      document.getElementById('bulkPanel').classList.toggle('minimized');
+    }
+
+    function aplicarResetPorModo() {
+      if (selectedForReset.size === 0) return alert("Selecione pelo menos uma conta!");
+      let count = 0;
+
+      selectedForReset.forEach(index => {
+        const conta = contas[index];
+        conta.ranks = Array.isArray(conta.ranks) ? conta.ranks : [];
+
+        modosReset.forEach(modo => {
+          const input = document.getElementById(`reset-${modo}`);
+          if (input && input.value.trim()) {
+            let rankItem = conta.ranks.find(r => r.modo === modo);
+            if (rankItem) rankItem.rank = input.value.trim();
+            else conta.ranks.push({ modo: modo, rank: input.value.trim() });
+            count++;
+          }
+        });
+
+        conta.ultimaAtualizacao = new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      });
+
+      alert(`✅ Reset aplicado com sucesso!\n${count} ranks atualizados em ${selectedForReset.size} contas.`);
+      selectedForReset.clear();
+      bulkResetMode = false;
+      document.getElementById('bulkPanel').classList.add('hidden');
+      document.getElementById('bulkBtnText').textContent = "Reset Temporada";
+      localStorage.setItem('rlss_contas', JSON.stringify(contas));
+      renderizar();
+    }
+
+    function exportarSelecionadas() {
+      if (selectedForExport.size === 0) return alert("Selecione pelo menos uma conta!");
+      const selecionadas = Array.from(selectedForExport).map(i => contas[i]);
+      const data = JSON.stringify(selecionadas, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rlss_export_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      alert(`${selectedForExport.size} contas exportadas com sucesso!`);
+      cancelarExportMode();
+    }
+
+    function cancelarExportMode() {
+      exportMode = false;
+      selectedForExport.clear();
+      document.getElementById('exportPanel').classList.add('hidden');
+      document.getElementById('exportBtnText').textContent = "Exportar";
+      renderizar();
+    }
+
+    function cancelarBulkReset() {
+      bulkResetMode = false;
+      selectedForReset.clear();
+      document.getElementById('bulkPanel').classList.add('hidden');
+      document.getElementById('bulkBtnText').textContent = "Reset Temporada";
+      renderizar();
+    }
+
+    function importarBackup() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = e => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const imported = JSON.parse(ev.target.result);
+            if (confirm(`Importar ${imported.length} contas?`)) {
+              contas = imported;
+              localStorage.setItem('rlss_contas', JSON.stringify(contas));
+              renderizar();
+              alert('Importação concluída com sucesso!');
+            }
+          } catch (err) {
+            alert('Arquivo inválido!');
+          }
+        };
+        reader.readAsText(e.target.files[0]);
+      };
+      input.click();
+    }
+
+    function editarRankRapido(contaIndex, rankIndex) {
+      if (bulkResetMode || exportMode) return;
+      const conta = contas[contaIndex];
+      rankEditando = { contaIndex, rankIndex };
+      document.getElementById('quickContaNome').textContent = conta.nome;
+      document.getElementById('quickModo').value = conta.ranks[rankIndex].modo;
+      document.getElementById('quickRank').value = conta.ranks[rankIndex].rank;
+      document.getElementById('modalQuickEdit').classList.remove('hidden');
+    }
+
+    function salvarRankRapido() {
+      const novoRank = document.getElementById('quickRank').value.trim();
+      if (!novoRank) return alert("Digite o novo rank!");
+      const { contaIndex, rankIndex } = rankEditando;
+      contas[contaIndex].ranks[rankIndex].rank = novoRank;
+      contas[contaIndex].ultimaAtualizacao = new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      localStorage.setItem('rlss_contas', JSON.stringify(contas));
+      fecharModalQuick();
+      renderizar();
+    }
+
+    function fecharModalQuick() {
+      document.getElementById('modalQuickEdit').classList.add('hidden');
+    }
+
+    function abrirDetalhes(index) {
+      const conta = contas[index];
+      document.getElementById('conteudoDetalhes').innerHTML = `
+        <h2 class="text-3xl font-bold mb-6">${conta.nome}</h2>
+        <div class="space-y-6">
+          <div>
+            <p class="text-gray-400 text-sm mb-1">Email</p>
+            <div class="flex bg-slate-800 rounded-2xl p-4">
+              <span class="font-mono flex-1">${conta.email}</span>
+              <button onclick="copiar('${conta.email}', 'Email copiado!')" class="text-cyan-400 text-2xl"><i class="fas fa-copy"></i></button>
+            </div>
+          </div>
+          <div>
+            <p class="text-gray-400 text-sm mb-1">Senha</p>
+            <div class="flex bg-slate-800 rounded-2xl p-4">
+              <span class="font-mono flex-1">••••••••••</span>
+              <button onclick="copiar('${conta.senha}', 'Senha copiada!')" class="text-amber-400 text-2xl"><i class="fas fa-key"></i></button>
+            </div>
+          </div>
+          ${conta.notas ? `<p class="text-sm bg-slate-800 p-4 rounded-2xl">${conta.notas}</p>` : ''}
+          <div class="flex gap-3 pt-6">
+            <button onclick="editarConta(${index});fecharModalDetalhes()" class="flex-1 bg-amber-500 py-3.5 rounded-2xl font-semibold">Editar Completo</button>
+            <button onclick="excluirConta(${index});fecharModalDetalhes()" class="flex-1 bg-red-600 py-3.5 rounded-2xl font-semibold">Excluir</button>
+            <button onclick="fecharModalDetalhes()" class="flex-1 bg-slate-700 py-3.5 rounded-2xl font-semibold">Fechar</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('modalDetalhes').classList.remove('hidden');
+    }
+
+    function copiar(texto, msg) {
+      navigator.clipboard.writeText(texto);
+      alert(msg);
+    }
+
+    function editarConta(index) {
+      contaEditando = index;
+      const conta = contas[index];
+
+      document.getElementById('modalTitle').textContent = 'Editar Conta';
+      document.getElementById('nome').value = conta.nome || '';
+      document.getElementById('email').value = conta.email;
+      document.getElementById('senha').value = conta.senha;
+      document.getElementById('notas').value = conta.notas || '';
+      document.getElementById('status').value = conta.status || 'nao_vendida';
+      document.getElementById('ranksList').innerHTML = '';
+
+      // dinheiro (carrega)
+      document.getElementById('precoUSD').value = conta.precoUSDCents == null ? '' : centsToMoney(conta.precoUSDCents, 'USD');
+      document.getElementById('precoBRL').value = conta.precoBRLCents == null ? '' : centsToMoney(conta.precoBRLCents, 'BRL');
+
+      if (conta.ranks && conta.ranks.length > 0) {
+        conta.ranks.forEach(r => adicionarRank(r.modo, r.rank));
+      } else {
+        adicionarRank();
+      }
+
+      document.getElementById('modalCadastro').classList.remove('hidden');
+      fecharModalDetalhes();
+    }
+
+    function adicionarRank(modoPadrao = '2v2', rankPadrao = '') {
+      const container = document.getElementById('ranksList');
+      const div = document.createElement('div');
+      div.className = 'flex gap-3';
+      div.innerHTML = `
+        <select class="bg-slate-800 border border-slate-600 rounded-2xl px-4 py-3 w-1/3">
+          ${modos.map(m => `<option value="${m}" ${m === modoPadrao ? 'selected' : ''}>${m}</option>`).join('')}
+        </select>
+        <input type="text" value="${rankPadrao}" placeholder="Ex: GC3, C1, D1, SSL" class="flex-1 bg-slate-800 border border-slate-600 rounded-2xl px-5">
+        <button onclick="this.parentElement.remove()" class="text-red-400 px-4 text-xl">×</button>
+      `;
+      container.appendChild(div);
+    }
+
+    function salvarConta() {
+      const nome = document.getElementById('nome').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const senha = document.getElementById('senha').value.trim();
+      const notas = document.getElementById('notas').value.trim();
+      const status = document.getElementById('status').value;
+
+      if (!nome || !email || !senha) return alert('Nome, Email e Senha são obrigatórios!');
+
+      // dinheiro (salva em centavos)
+      const precoUSDCents = moneyToCents(document.getElementById('precoUSD').value.trim(), 'USD');
+      const precoBRLCents = moneyToCents(document.getElementById('precoBRL').value.trim(), 'BRL');
+
+      const ranks = Array.from(document.getElementById('ranksList').children)
+        .filter(div => div.querySelector('select'))
+        .map(div => ({
+          modo: div.querySelector('select').value,
+          rank: div.querySelector('input').value.trim() || 'Sem Rank'
+        }));
+
+      const conta = {
+        nome, email, senha, status, tipo: tipoSelecionado || 'rlss',
+        ranks: tipoSelecionado === 'email' ? [] : ranks,
+        notas,
+
+        // dinheiro
+        precoUSDCents,
+        precoBRLCents,
+
+        ultimaAtualizacao: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      };
+
+      if (contaEditando !== null) contas[contaEditando] = conta;
+      else contas.push(conta);
+
+      localStorage.setItem('rlss_contas', JSON.stringify(contas));
+      fecharModalCadastro();
+      renderizar();
+    }
+
+    function excluirConta(index) {
+      if (confirm('Tem certeza que deseja excluir esta conta? Esta ação não pode ser desfeita.')) {
+        contas.splice(index, 1);
+        localStorage.setItem('rlss_contas', JSON.stringify(contas));
+        renderizar();
+        fecharModalDetalhes();
+      }
+    }
+
+    function fecharModalCadastro() { document.getElementById('modalCadastro').classList.add('hidden'); }
+    function fecharModalDetalhes() { document.getElementById('modalDetalhes').classList.add('hidden'); }
+
+    function toggleSenha() {
+      const input = document.getElementById('senha');
+      const icon = document.getElementById('eyeIcon');
+      senhaVisivel = !senhaVisivel;
+      input.type = senhaVisivel ? 'text' : 'password';
+      icon.classList.toggle('fa-eye', !senhaVisivel);
+      icon.classList.toggle('fa-eye-slash', senhaVisivel);
+    }
+
+    function limparFiltros() {
+      document.getElementById('search').value = '';
+      document.getElementById('ordenar').value = 'rank-desc';
+      document.getElementById('tipoConta').value = 'todos';
+      document.getElementById('plataforma').value = 'todos';
+      document.getElementById('statusFiltro').value = 'todos';
+      document.getElementById('modoFiltro').value = '';
+      document.getElementById('precoMin').value = '';
+      renderizar();
+    }
+
+    function exportarBackup() {
+      const data = JSON.stringify(contas, null, 2);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+      a.download = 'backup_rlss_completo.json';
+      a.click();
+    }
+
+    function makeDraggable() {
+      const panel = document.getElementById('bulkPanel');
+      const header = document.getElementById('panelHeader');
+      let offsetX, offsetY;
+
+      header.addEventListener('mousedown', e => {
+        if (e.target.tagName === 'BUTTON') return;
+        offsetX = e.clientX - panel.getBoundingClientRect().left;
+        offsetY = e.clientY - panel.getBoundingClientRect().top;
+
+        const move = ev => {
+          panel.style.right = 'auto'; panel.style.bottom = 'auto';
+          panel.style.left = (ev.clientX - offsetX) + 'px';
+          panel.style.top = (ev.clientY - offsetY) + 'px';
+        };
+
+        const up = () => {
+          document.removeEventListener('mousemove', move);
+          document.removeEventListener('mouseup', up);
+        };
+
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+      });
+    }
+
+    function renderizar() {
+      const busca = document.getElementById('search').value.toLowerCase();
+      const ordenar = document.getElementById('ordenar').value;
+      const tipoConta = document.getElementById('tipoConta').value;
+      const plataforma = document.getElementById('plataforma').value;
+      const statusFiltro = document.getElementById('statusFiltro').value;
+      const modoFiltro = document.getElementById('modoFiltro').value;
+
+      // filtro do dinheiro (mínimo em BRL)
+      const precoMinCents = moneyToCents(document.getElementById('precoMin').value.trim(), 'BRL');
+
+      let filtradas = contas.filter(conta => {
+        const matchBusca = !busca ||
+          (conta.nome && conta.nome.toLowerCase().includes(busca)) ||
+          conta.email.toLowerCase().includes(busca) ||
+          (conta.ranks && conta.ranks.some(r => (r.rank || '').toLowerCase().includes(busca)));
+
+        const matchTipo = tipoConta === 'todos' || conta.tipo === tipoConta;
+        const matchStatus = statusFiltro === 'todos' || conta.status === statusFiltro;
+
+        const matchPlataforma = plataforma === 'todos' ||
+          (plataforma === 'epic' && !conta.email.toLowerCase().includes('steam')) ||
+          (plataforma === 'steam' && conta.email.toLowerCase().includes('steam'));
+
+        const matchModo = !modoFiltro || (conta.ranks && conta.ranks.some(r => r.modo === modoFiltro));
+
+        const matchPrecoMin = (precoMinCents === null)
+          ? true
+          : (conta.precoBRLCents != null && Number(conta.precoBRLCents) >= precoMinCents);
+
+        return matchBusca && matchTipo && matchStatus && matchPlataforma && matchModo && matchPrecoMin;
+      });
+
+      if (ordenar.includes('rank')) {
+        const isDesc = ordenar === 'rank-desc';
+        filtradas.sort((a, b) => {
+          const maxA = a.ranks?.length ? Math.max(...a.ranks.map(r => getRankValue(r.rank))) : -10;
+          const maxB = b.ranks?.length ? Math.max(...b.ranks.map(r => getRankValue(r.rank))) : -10;
+          return isDesc ? maxB - maxA : maxA - maxB;
+        });
+      } else if (ordenar === 'data') {
+        filtradas.sort((a, b) => new Date(b.ultimaAtualizacao || 0) - new Date(a.ultimaAtualizacao || 0));
+      } else {
+        filtradas.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+      }
+
+      const container = document.getElementById('listaContas');
+      container.innerHTML = '';
+
+      filtradas.forEach((conta) => {
+        const index = contas.indexOf(conta);
+        const status = statusConfig[conta.status] || statusConfig.nao_vendida;
+        const isSelected =
+          (exportMode && selectedForExport.has(index)) ||
+          (bulkResetMode && selectedForReset.has(index));
+
+        let ranksHTML = conta.ranks
+          ? conta.ranks.map((r, i) => `
+            <div onclick="editarRankRapido(${index}, ${i}); event.stopImmediatePropagation()"
+                 class="rank-item px-3 py-2 rounded-xl border border-slate-700">
+              <span class="text-cyan-400 text-xs">${r.modo}</span>
+              <span class="text-white font-medium block">${r.rank}</span>
+            </div>
+          `).join('')
+          : '<p class="col-span-2 text-gray-500">Sem ranks</p>';
+
+        const card = document.createElement('div');
+        card.className = `card bg-slate-900 border ${status.border} rounded-3xl p-6 ${isSelected ? 'selected' : ''}`;
+
+        card.onclick = () => {
+          if (bulkResetMode) return toggleAccountSelection(index);
+          if (exportMode) return toggleExportSelection(index);
+          abrirDetalhes(index);
+        };
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-start gap-3 min-w-0">
+              ${(bulkResetMode || exportMode) ? `
+                <div class="mt-1 w-5 h-5 rounded bg-slate-800 border border-slate-600 flex items-center justify-center shrink-0">
+                  ${isSelected ? '<i class="fas fa-check text-cyan-300 text-xs"></i>' : ''}
+                </div>
+              ` : `<div class="mt-2 w-2 h-2 rounded-full bg-cyan-400 shrink-0"></div>`}
+
+              <div class="min-w-0">
+                <div class="text-xl font-bold truncate">${conta.nome || 'Sem nome'}</div>
+                <div class="text-xs text-gray-500 truncate">${conta.email}</div>
+                <div class="text-xs text-gray-500 mt-1">Atualizado: ${conta.ultimaAtualizacao || '—'}</div>
+              </div>
+            </div>
+
+            <span class="status-badge ${status.color} shrink-0">${status.text}</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 mt-5">
+            ${ranksHTML}
+          </div>
+        `;
+
+        container.appendChild(card);
+      });
+
+      if (exportMode) {
+        document.getElementById('exportSelectedText').textContent =
+          `${selectedForExport.size} conta${selectedForExport.size !== 1 ? 's' : ''} selecionada${selectedForExport.size !== 1 ? 's' : ''}`;
+      }
+    }
+
+    // init
+    attachMoneyMask('precoUSD', 'USD');
+    attachMoneyMask('precoBRL', 'BRL');
+    attachMoneyMask('precoMin', 'BRL');
+
+    makeDraggable();
+    document.getElementById('search').addEventListener('input', renderizar);
+    renderizar();
+  </script>
+</body>
+</html>
+```
